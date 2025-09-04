@@ -1,0 +1,75 @@
+# -*- coding: utf-8 -*-
+import os
+import sqlite3
+from datetime import datetime
+from flask import Flask, render_template, request, redirect, url_for, jsonify, session, abort, flash
+
+DB_PATH = os.environ.get("DB_PATH", "database.db")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin123")
+SECRET_KEY = os.environ.get("SECRET_KEY", "change-me")
+
+def init_db():
+    with sqlite3.connect(DB_PATH) as con:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS applicants (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            full_name TEXT NOT NULL,
+            phone TEXT NOT NULL,
+            national_id TEXT,
+            city TEXT,
+            vehicle_type TEXT,
+            iban TEXT,
+            experience_years INTEGER,
+            notes TEXT,
+            created_at TEXT NOT NULL
+        )
+        """)
+        con.commit()
+
+def insert_applicant(full_name, phone, national_id, city, vehicle_type, iban, exp_years, notes):
+    with sqlite3.connect(DB_PATH) as con:
+        con.execute("""
+        INSERT INTO applicants
+        (full_name, phone, national_id, city, vehicle_type, iban, experience_years, notes, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (full_name, phone, national_id, city, vehicle_type, iban, exp_years, notes, datetime.utcnow().isoformat()))
+        con.commit()
+
+def fetch_applicants():
+    with sqlite3.connect(DB_PATH) as con:
+        con.row_factory = sqlite3.Row
+        cur = con.execute("SELECT * FROM applicants ORDER BY id DESC")
+        return [dict(r) for r in cur.fetchall()]
+
+app = Flask(__name__)
+app.config["SECRET_KEY"] = SECRET_KEY
+
+@app.before_first_request
+def setup():
+    init_db()
+
+@app.get("/")
+def index():
+    return render_template("index.html")
+
+@app.post("/apply")
+def apply():
+    full_name = (request.form.get("full_name") or "").strip()
+    phone = (request.form.get("phone") or "").strip()
+    if not full_name or not phone:
+        flash("الاسم والجوال إلزامية.", "error")
+        return redirect(url_for("index"))
+    insert_applicant(full_name, phone, "", "", "", "", 0, "")
+    return redirect(url_for("thanks"))
+
+@app.get("/thanks")
+def thanks():
+    return render_template("thanks.html")
+
+@app.get("/admin")
+def admin_panel():
+    data = fetch_applicants()
+    return render_template("admin.html", applicants=data)
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=8000, debug=True)
